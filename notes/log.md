@@ -44,3 +44,4 @@ Still open:
 Schedule: started the day about a day behind. The Doppler FFT, map and comb were done this evening, so I'm roughly back on plan. Nov 10 is still the buffer day.
 
 Next (Nov 7): Tx0 finding and the 16-bin fold, check against the SDK on one frame.
+
