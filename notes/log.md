@@ -45,3 +45,35 @@ Schedule: started the day about a day behind. The Doppler FFT, map and comb were
 
 Next (Nov 7): Tx0 finding and the 16-bin fold, check against the SDK on one frame.
 
+
+## Nov 7-8: fold, Tx0, CA-CFAR
+
+Fold: the all-antenna map is the sum of magnitudes over the 16 channels (np.sum(np.abs(rd), axis=2), the SDK does magnitudes, not powers). Then reshape (512, 16, 16) and sum over the middle axis to get (512, 16). A Doppler bin l is 16a + b, and the 12 transmitters' copies of one target sit 16 bins apart, so they all share column b and the sum stacks them. The fold width has to divide 16 and 16 is the biggest. Gain is about 3x (about 9.5 dB) if I assume the copies are independent. What it costs: two targets whose Doppler differs by a multiple of 16 land in the same cell, and I lose which slot each copy came from, which is why Tx0 has to be found afterwards.
+
+Tx0 (SDK's __find_TX0_position): take the 16 slot values of column b at one range bin, add the first 4 again at the end so it wraps, cumsum, average every 4 in a row, and the smallest window is the empty band. Tx0 bin = 16*j + b. For range bin 198 I expect b = 6, j = 15, Tx0 = 246. I haven't written down the printed result, so check that the cell really prints 6 15 246.
+
+CA-CFAR, copied from Valeo's rpl.py: window (9, 9, 3, 3) so a 19 x 19 mask with a 7 x 7 block removed in the middle (guard cells and the cell under test), which leaves 312 training cells. Work on power (square the map), get the training sums with convolve2d(..., mode="same"), divide by the counts from convolving a map of ones (so the edges are fair), and call it a hit if power / noise > 10^(thr/10). The window does not wrap on the Doppler axis, so columns 0 and 15 have fewer neighbours.
+
+Why a fixed threshold when the noise estimate moves: the false-alarm rate depends on the ratio and the number of training cells, not on the noise level. Valeo uses 2 dB (ratio 1.585). That only works because every folded cell is a sum of 256 magnitudes, so its power barely wobbles (about 6.5% if independent, my simulation gave 6.55%). For a single FFT cell, power is exponential and the textbook formula Pfa = (1 + a/N)^(-N) would give about 21% false alarms at a = 1.585 with N = 312, so that formula does not describe our map. I choose the threshold empirically.
+
+Results on frame 13457 (thr_db 2 / 4 / 6): 593 / 349 / 213 detections. No flat part in the counts, so the threshold alone can't separate targets from clutter. Looking at the plot: columns 1-4 over range bins 30-350 are the static world (the static clutter was near Doppler bin 242, and 242 mod 16 = 2), the moving car is at range bin 198 in columns 5-7, there's a ridge at near range, and range bins 0-3 and 500-511 are edge artefacts to mask. P_red is in linear units (about 3.3e5 to 3.3e8, roughly 110-170 dB). The 0-1 colorbar I got was a plotting quirk, fixed by keeping the imshow handle and using vmin=120. Saved: figures/cfar_folded_thr6.png and the version with the label line.
+
+## Nov 9 (after midnight): labels and the first hit rate
+
+labels_CVPR.csv has 24,179 rows for all sequences. My recording has 556 rows over 405 labelled frames (index 0 to 448). Columns I use: dataset, index (frame number), radar_R_m, radar_A_deg, Annotation. radar_D_mps looks wrong (52 m/s for a car at 18 m), so no Doppler matching until I understand its units.
+
+Range scale: the SDK does RangeBin / 512 * 103, so 103/512 = 0.2012 m per bin. I first wrote 103/150, which is wrong. Frame 0: label at 18.36 m is range bin 91.3. The dashed line lands a few bins from the bright blob at 85-88, so weak evidence. Frame 22: label at 36.7 m is bin 182.6, and the line runs through the brightest return in the whole frame (about 170 dB), in the middle-right columns. Two frames with two ranges both agree, so frames[k] matches label index k as far as I can tell.
+
+Wrote frame_to_pred(n) so any frame gives its folded map. Mistakes: I swapped the sample numbers for ch1 and ch2 (it is ch2 = n+2, ch1 = n+3), and twice put the wrong axis on a sum or FFT (channel sum is axis 2, Doppler FFT is axis 1).
+
+Matching rule: a label is found if some detection is within 5 range bins (about 1 m). Because 200+ detections cover a lot of the range axis, I also measured the chance level: the fraction of empty range bins (more than 10 bins from any label) that are within 5 bins of a detection. I first did this with random fake labels, then switched to the exact coverage after pointing out that a random fake can land on a real vehicle.
+
+Full run, all 556 labels, thr_db 6, gate 5 bins: hit rate h = 0.896, chance c = 0.540, lift (h - c) / (1 - c) = 0.773. Took 2 min 50 s. The first 37 labels gave 0.946 and 0.568, so the small sample was too optimistic. This is a baseline with no clutter removal and no angle processing, so I should not call it a precise detector.
+
+Decisions: no Vivado now (Phase 4 is the stretch and mostly cut, FPGA cost will be an operation count, say so in the report). Clutter removal (plan step 3) is cut for now.
+
+Where I am: about half a day behind, but Nov 10 can be a buffer again if the next day goes well. Left in Phase 1: sweep the threshold at 2, 4, 6, 8, 10 (build all the maps once into a dict so each sweep takes seconds) and freeze one value for Phase 3, get the camera image (the .mjpg index mapping is not verified, give it two hours at most), make Figure 1. SDK cross-check is optional. Rule stays: Figure 1 by Nov 10, otherwise use the SDK's map and move on.
+
+To do: tell Claude my exam dates and how many hours a day I can work, so Phase 3 (Nov 15-20) can be checked.
+
+Next: threshold sweep, then camera, then Figure 1.
