@@ -74,6 +74,36 @@ Decisions: no Vivado now (Phase 4 is the stretch and mostly cut, FPGA cost will 
 
 Where I am: about half a day behind, but Nov 10 can be a buffer again if the next day goes well. Left in Phase 1: sweep the threshold at 2, 4, 6, 8, 10 (build all the maps once into a dict so each sweep takes seconds) and freeze one value for Phase 3, get the camera image (the .mjpg index mapping is not verified, give it two hours at most), make Figure 1. SDK cross-check is optional. Rule stays: Figure 1 by Nov 10, otherwise use the SDK's map and move on.
 
-To do: tell Claude my exam dates and how many hours a day I can work, so Phase 3 (Nov 15-20) can be checked.
+To do: write down my exam dates and how many hours a day I can work, so Phase 3 (Nov 15-20) can be checked.
 
 Next: threshold sweep, then camera, then Figure 1.
+
+## Nov 9 (evening): threshold frozen, camera, Figure 1, clutter tests
+
+Threshold sweep, all 556 labels, gate 5 bins, using cached maps (P_all, one dict entry per labelled frame, about 26 MB, built once in 2.5 min; each threshold then takes seconds). hit rate / chance / lift:
+2 dB: 0.978 / 0.890 / 0.804
+4 dB: 0.951 / 0.710 / 0.832
+6 dB: 0.896 / 0.540 / 0.773
+8 dB: 0.865 / 0.391 / 0.779
+10 dB: 0.815 / 0.285 / 0.741
+Frozen at 4 dB for everything from here on, including the Sparse FFT comparison. The lift beats 6 and 8 dB by only about 0.05 and the frames are neighbours, so it is a modest preference. Picked on the same labels I measure on, fine for a baseline with one knob, but say so in the write-up. Mistakes: I typed dist <= 10 in the chance line instead of dist <= gate (the 10 is only the exclusion zone around real vehicles), and I once left the label loop outside the for k loop, so it ran on one frame.
+
+Camera: the .mjpg is not a video file, it is about 2,700 JPEGs one after another, found through the same events log (offset and datasize, the bytes at the offset start with ff d8 ff e0). I first tried cv2.VideoCapture, which is wrong for this file. Pairing with the radar: Valeo's SDK matches by time. Using their timestamp mode with the -180 ms radar delay gave camera picture 125 for frame 22 and the label box sat beside the car. Matching on timeofissue (their other mode, no delay) gave picture 131 and the box sits on the car. Second labelled frame (ks[200]) also fits with timeofissue. So the camera is paired by timeofissue: camera_for(n) = argmin |cam_tio - ch3_tio[n]|. I do not know why the SDK delay does not apply to the labels, so I describe it as the pairing under which the dataset's boxes fit. Label index is the dataset_index (frame index in the sequence), and the README says the labelled point is the middle of the vehicle's back or front face, which explains the few-bin offsets in range.
+
+Figure 1 is saved as figures/fig1_camera_rd_cfar.png: camera with the green label box on the left, folded range-Doppler map with CFAR detections (4 dB, 357 detections) and the dashed label range line on the right, frame 22, label at 36.7 m (bin 182.6). The vehicle shows up as the brightest streak in the frame in folded columns 9-11. Caption has to say: Doppler is folded (mod 16), detections at the edge columns are mostly static clutter, no clutter removal.
+
+Clutter removal: decided not to build it. Test on 45 labelled frames (every 9th), with a separate script whose CFAR reproduced my counts 213, 349 and 357 exactly (I have not re-run this script myself yet, so these numbers are provisional until I do):
+- Clutter columns are only clearly peaked in 8 of 45 frames; the 3 busiest folded columns hold a median 32% of detections (19% if spread evenly).
+- Masking those 3 columns would lose 38% of the labelled vehicles (chance 19%) while removing 32% of detections, so it is worse than random. Not doing it.
+- The plan's step 3 (subtract the mean over chirps per range bin) changes almost nothing: K 271 to 269, K90 4323 to 4316, lift 0.795 to 0.799. On frame 22: 357 detections against 354. frame_to_pred(n, mti=True) does this, default is off.
+- Why it is hard: a static scatterer's Doppler is about v_ego * cos(azimuth), so real removal needs the ego speed, the azimuth (angle FFT and calibration matrix) and Tx0 per cell. Days of work, so it goes in the study-next doc. In Figure 2 I keep two series (DC removal only, plus step 3) and write one sentence saying no ego-motion-compensated suppression was applied, so static returns remain and K/N overstates the moving-target content.
+
+Two warnings for Phase 2:
+- The definition of K matters a lot. On the folded map, CFAR detections give K = 271 of 8192 cells (3.3%), but K90 (cells holding 90% of the energy) is 4323 (53%) and K99 is 7059 (86%). First look at 45 frames, on the folded sum-of-magnitudes map, which is not the stage where a Sparse FFT would run. I have to decide where K is measured before quoting a number.
+- I have one sequence (looks like countryside). Figure 2 needs city and highway too.
+
+Where I am: Phase 1 is done, one day before the Nov 10 buffer rule. Skipped on purpose: SDK cross-check (optional), clutter removal.
+
+To do: download two more sequences (city and highway; radar .bin files, events log and camera only, labels file already covers all), write down my exam dates and daily hours, commit (git status first, data/ must not show).
+
+Next (Nov 10-11): define K properly, then K/N on this sequence, then the other sequences.
