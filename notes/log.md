@@ -107,3 +107,22 @@ Where I am: Phase 1 is done, one day before the Nov 10 buffer rule. Skipped on p
 To do: download two more sequences (city and highway; radar .bin files, events log and camera only, labels file already covers all), write down my exam dates and daily hours, commit (git status first, data/ must not show).
 
 Next (Nov 10-11): define K properly, then K/N on this sequence, then the other sequences.
+
+## Nov 10: two more sequences, and what I studied about sparsity
+
+Data: downloaded and unzipped a city sequence (RECORD@2020-11-21_13.46.26) and a highway one (RECORD@2020-11-22_12.25.47), next to the first one (RECORD@2020-11-22_12.54.38, countryside). I picked them from labels_CVPR.csv (vehicles per frame and range as a rough guide to the scene type) and confirmed the scene types by watching the preview videos. The labels file has no scene-type column. Disk is 96% full; the two zips (about 10.5 GB) can be deleted.
+Not done yet: Step 0 sanity check on both new sequences (change SEQ, run Figure 1 on the first labelled frame, box on the vehicle and a red dot near the dashed line). Pairing, ch3-first grouping and the range scale were only checked on the first sequence.
+
+What I went through (not yet used in code):
+- Sparse means few bins carry most of the energy. K90 = smallest number of bins holding 90% of the energy, found by sorting the bins from largest and adding up. The reference is noise: a pure-noise spectrum needs 149 of 256 bins (58%) for 90%, the 3-tone example needs 2. A map counts as sparse only if K90/N is well below the noise value, so every K90 needs a noise control run through the same pipeline.
+- Where to measure: Phase 2 sparsity must be on the unfolded 512 x 256 power map (power = sum over the 16 channels of |.|^2), because the Sparse FFT would replace the 256-point Doppler FFT. The folded 512 x 16 map is the wrong stage. With DDM a single target already has about 12 peaks (one per Tx slot, 16 bins apart) in the unfolded 256 bins, so K cannot go below about 12 per target.
+- On the grid and off the grid: bins are the frequencies that fit a whole number of cycles in the window (spacing fs/N); a tone between them leaks into many bins. Hamming window, N = 256 tone: on the grid K90 is 1 without a window and 3 with Hamming; between bins it is 4 without a window (66 bins still within 40 dB of the peak) and 2 with Hamming. Real targets are off the grid, so Hamming gives the lower and more stable K. Also look at bins within X dB of the peak, not only K90.
+- Bucketing: keep every (N/B)-th sample and take a B-point FFT; bin f lands in bucket f mod B. With N = 256 and B = 16, spikes at 37, 100 and 201 land in buckets 5, 4 and 9. The bucket value gives the spike size.
+- Finding the bin: repeat with the samples shifted by tau (tau < N/B), take the ratio of shifted to unshifted bucket value, and the angle gives f = (N / 2 pi tau) x angle. Then snap to the nearest of the candidates in the bucket (for bucket 5: 5, 21, 37, ...). With tau = 1, N = 256 and B = 16 the candidates are 22.5 degrees apart, so the phase error must stay below 11.25 degrees. A tiny N = 8 example was worked by hand.
+- Still to study: collisions (two spikes in one bucket) and repeating with a different arrangement; operation counts for the cost comparison.
+
+Plan for the paper: read Hassanieh, Indyk, Katabi, Price (SODA 2012) on about Nov 14-15, before Phase 3. Abstract, introduction and the algorithm description only; skip the proofs.
+
+Optional, only if time permits in Phase 3: test several shifts tau (1, 3, and two shifts together). A larger tau gives a finer estimate of an off-grid frequency (frequency error = N / (2 pi tau) x phase error, so 1 degree is 0.71 bins at tau = 1 and 0.24 at tau = 3) but wraps the phase and makes bins ambiguous. Start with tau = 1.
+
+Next (Nov 11): Step 0 on both new sequences, then K90 on one labelled frame per scene type, with a noise control.
