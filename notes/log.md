@@ -119,10 +119,29 @@ What I went through (not yet used in code):
 - On the grid and off the grid: bins are the frequencies that fit a whole number of cycles in the window (spacing fs/N); a tone between them leaks into many bins. Hamming window, N = 256 tone: on the grid K90 is 1 without a window and 3 with Hamming; between bins it is 4 without a window (66 bins still within 40 dB of the peak) and 2 with Hamming. Real targets are off the grid, so Hamming gives the lower and more stable K. Also look at bins within X dB of the peak, not only K90.
 - Bucketing: keep every (N/B)-th sample and take a B-point FFT; bin f lands in bucket f mod B. With N = 256 and B = 16, spikes at 37, 100 and 201 land in buckets 5, 4 and 9. The bucket value gives the spike size.
 - Finding the bin: repeat with the samples shifted by tau (tau < N/B), take the ratio of shifted to unshifted bucket value, and the angle gives f = (N / 2 pi tau) x angle. Then snap to the nearest of the candidates in the bucket (for bucket 5: 5, 21, 37, ...). With tau = 1, N = 256 and B = 16 the candidates are 22.5 degrees apart, so the phase error must stay below 11.25 degrees. A tiny N = 8 example was worked by hand.
-- Still to study: collisions (two spikes in one bucket) and repeating with a different arrangement; operation counts for the cost comparison.
+- Collisions and operation counts: see the Nov 11 entry below.
 
-Plan for the paper: read Hassanieh, Indyk, Katabi, Price (SODA 2012) on about Nov 14-15, before Phase 3. Abstract, introduction and the algorithm description only; skip the proofs.
+Plan for the paper: superseded, see the Nov 11 entry below.
 
-Optional, only if time permits in Phase 3: test several shifts tau (1, 3, and two shifts together). A larger tau gives a finer estimate of an off-grid frequency (frequency error = N / (2 pi tau) x phase error, so 1 degree is 0.71 bins at tau = 1 and 0.24 at tau = 3) but wraps the phase and makes bins ambiguous. Start with tau = 1.
+Optional, only if time permits in Phase 3: test several shifts tau (1, 3, and two shifts together). A larger tau gives a finer estimate of an off-grid frequency (frequency error = N / (2 pi tau) x phase error, so 1 degree is 0.71 bins at tau = 1 and 0.24 at tau = 3) but must be used together with tau = 1, never alone (see Nov 11). Start with tau = 1.
 
 Next (Nov 11): Step 0 on both new sequences, then K90 on one labelled frame per scene type, with a noise control.
+
+## Nov 11 (after midnight): buckets, shifts, collisions, which paper
+
+Understood:
+- One B-point FFT of a sample group (x0, x16, x32, ... for B = 16) gives all 16 buckets at once. Bucket b is the complete sum of every bin f with f mod 16 = b; a tone at bin 17 is present in every sample, so group 0 sees it even though it does not contain sample 17.
+- Group tau = samples starting at tau (x1, x17, ... is group 1). The regular 256-point FFT is 16 group FFTs plus 16 more across the groups (32 FFTs of size 16). The sparse version computes only groups 0 and 1: with one spike in a bucket there are 2 unknowns (size, position), group 0 gives the size, the angle of group 1 / group 0 gives the position, and groups 2-15 are predictable from those two (checked: they match to 1e-15).
+- tau rule: use odd tau. Even tau makes candidates in the same bucket share an angle (tau = 2: bins 5 and 133 both at 14.1 degrees). Any odd tau keeps the 16 candidates 22.5 degrees apart, so on-grid tones are found exactly with tau = 1 or 15.
+- Off grid, an offset of d bins turns the angle by 1.41 x tau x d degrees; snapping holds only if that is under 11.25 degrees, i.e. d < 8/tau. tau = 1 is always safe (d <= 0.5). tau = 15 fails: 37.6 snaps to bin 21. But once the integer bin is known, a large odd tau reads the fraction finely (37.4 -> 8.4 degrees -> 37.40; 1 degree costs 0.05 bin instead of 0.71). So: tau = 1 for the bin, a large odd tau only as an optional refinement.
+- Collisions: bins 37 (1.0) and 53 (0.7) share bucket 5. The bucket reads 1.7, the ratio has angle 61.3 degrees (-> 43.6) and size 0.981. The size test is weak; two shifts that disagree are a better test (tau = 1 -> 37, tau = 3 -> 213).
+- Important for RADIal: the 12 DDM copies of a target are exactly 16 bins apart, so with simple every-16th-sample buckets all 12 land in the same bucket (the same thing as the 512 x 16 fold). The papers fix this by permuting (read x at sigma*m + tau, sigma odd, so bin f moves to sigma*f) and using a flat window so each bucket is a block of neighbouring permuted bins (hash = round(sigma*f*B/N)). With sigma = 5 the 12 copies land in 12 different buckets. So Phase 3 must use the permutation, not the simplified bucketing.
+- Rough collision chance for one spike: (K-1)/B, so B has to be several times K.
+
+Paper correction: the SODA 2012 paper (Simple and Practical) locates frequencies by voting across rounds, not by phase. The two-sample phase method comes from Nearly Optimal Sparse Fourier Transform (same authors, STOC 2012, arXiv 1201.2501), exactly-sparse algorithm in Section 3. Proposal: implement that one in Phase 3 (simpler, matches what I learned; real data is not exactly sparse, which is the point to test). Decision pending. Reading: STOC 2012 Sections 1-3, skip proofs; SODA 2012 Section 1 only.
+
+Deferred: operation counts (lesson 5) until the end of Phase 3. One point kept: with about 12 bins per DDM target, the saving at N = 256 may be small or none; Phase 2 measures K.
+
+Estimate: Phases 2 and 3 done by about Nov 16 at 5-6 hours a day. Still need to write down exam dates and daily hours.
+
+Next (Nov 11): Step 0 on both new sequences, then frame_to_rd, k_frac and the noise control on one frame per scene.
