@@ -145,3 +145,24 @@ Deferred: operation counts (lesson 5) until the end of Phase 3. One point kept: 
 Estimate: Phases 2 and 3 done by about Nov 16 at 5-6 hours a day. Still need to write down exam dates and daily hours.
 
 Next (Nov 11): Step 0 on both new sequences, then frame_to_rd, k_frac and the noise control on one frame per scene.
+
+## Nov 11 (evening): new sequences checked, real highway, Phase 2 started
+
+Data:
+- The "highway" sequence RECORD@2020-11-22_12.25.47 turned out to be a two-lane rural road (Figure 1 at label frame 51). Kept only as a spare rural sequence.
+- Downloaded RECORD@2020-11-22_12.38.47 instead. Confirmed as a divided highway from preview frames at 10-90% of the recording and from the GPS file: speed 107-117 km/h (median 111 km/h, about 31 m/s). 296 labelled frames, one vehicle each, all beyond 40 m.
+- Scenes now: city = 2020-11-21_13.46.26, countryside = 2020-11-22_12.54.38, highway = 2020-11-22_12.38.47. Zips deleted, about 64 GB free.
+
+Step 0 (notebooks/02_check_sequences.ipynb, Phase 1 cells only, SEQ and TAG at the top, figures saved as fig1_<TAG>_k<k>.png):
+- City, label frame 1: all 5 boxes on vehicles; detections near the 6.8 m, 14.0 m and 32-34 m labels. Pass.
+- Highway, label frame 0: box on the lead car; static clutter forms the curved band expected at speed. The nearest detection to the 70.0 m label is about 7 range bins away (read off the plot), so the 5-bin gate would count it as missed. Possible gate issue at long range; check later.
+- Countryside, label frame 0: same as the original Figure 1.
+- Not done: the same check at k = ks[100] on city and highway.
+
+Open issue, label frame index: the code maps label index k to frames[k]. Every sequence has dropped radar blocks (10 countryside, 15 city, 7 rural), so after the first drop frames[k] and the k-th ch3 sample differ. Quick test on labelled frames where they differ: hit rate 0.885 vs 0.923 (countryside), 0.833 vs 0.897 (city), 0.682 vs 0.545 (rural); about 0.98 where they agree. Neither mapping is fully right, so the 0.951 hit rate may be slightly low. Needs a timestamp-based mapping before quoting hit rates again. Does not affect Phase 2 (K90 uses no labels). label numSample is not the radar sample number.
+
+Phase 2 started (notebooks/02_sparsity.ipynb, cells 1-7 copied from 02_check_sequences):
+- frame_to_rd(n): same as frame_to_pred up to the Doppler FFT, then power summed over the 16 channels, sum |X|^2 over axis 2, with no fold -> (512, 256). Differences from frame_to_pred: power instead of magnitude (K90 counts energy), and no fold (the fold adds a target's 12 DDM copies into one cell, which would make the data look about 12 times sparser than it is for a Doppler sparse FFT).
+- Uses frames[0], not labelled frames; K90 needs no labels.
+
+Next: test frame_to_rd (shape 512 x 256), then k_frac, the noise control, and K90 on one frame per scene.
