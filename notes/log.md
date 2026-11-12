@@ -166,3 +166,54 @@ Phase 2 started (notebooks/02_sparsity.ipynb, cells 1-7 copied from 02_check_seq
 - Uses frames[0], not labelled frames; K90 needs no labels.
 
 Next: test frame_to_rd (shape 512 x 256), then k_frac, the noise control, and K90 on one frame per scene.
+
+## Nov 12-13: Phase 2 sparsity results, Figure 2
+
+Notebook (notebooks/02_sparsity.ipynb):
+- Cells 0-2 replaced by SEQS (tag -> sequence) and load_seq(tag), which sets the globals SEQ, TAG, DATA, radar and frames. read_block and frame_to_rd read these globals, so every later cell works on whichever scene was loaded last. Complete frames: city 576, countryside 452, highway 388 (old cell comments saying highway 483 were from the wrong download).
+- k_frac(P, frac): sort all bin powers, running share of total energy, searchsorted for the first point reaching frac, +1 for a count. Test on [50, 30, 10, 6, 4] gives 3.
+- Noise control: complex Gaussian (512, 256, 16) through the same windows, FFTs and channel power sum.
+
+Whole-map results, frame 0 of each scene (share of the 131072 bins):
+
+| Scene | K50 | K80 | K90 | K99 | Floor share | Bins > 6 dB | Bins > 10 dB |
+|---|---|---|---|---|---|---|---|
+| City | 0.12% | 1.65% | 5.29% | 59.8% | 0.055 | 19611 | 11723 (8.9%) |
+| Countryside | 0.06% | 1.26% | 13.3% | 75.1% | 0.128 | 8167 | 4369 (3.3%) |
+| Highway | 0.34% | 19.4% | 46.1% | 84.8% | 0.291 | 8065 | 3238 (2.5%) |
+| Noise | | | 84.6% | | | 0 | 0 |
+
+Floor share = median(P) x number of bins / total energy, a rough estimate of how much of the energy is noise floor (one median for the whole map, although the floor changes with range).
+
+Findings:
+- Noise K90 is 84.6%, not 60-70%. One channel of complex noise has exponential bin power (K90 about 59%); summing 16 independent channels makes the bins nearly equal (std/mean = 1/sqrt(16) = 0.25), so K90 approaches the flat-spectrum value of 90%. The windows do not change it.
+- K90 ranks the scenes backwards (city sparsest, highway least sparse). K90 measures how the energy is split between peaks and floor, not how many peaks there are. Each curve stays small until the energy level reaches about 1 - floor share, then jumps into the flat floor: city near 94.5%, countryside near 87%, highway near 71%. The highway's 46% comes from its large floor share, not from many targets.
+- Counting bins more than 10 dB above the median ranks them as expected: city > countryside > highway. Noise gives 0, so the counted bins are real returns.
+- The counts are far above the number of labelled vehicles (highway: one vehicle, 3238 bins). Each target covers several range bins, Hamming leakage widens it, DDM makes 12 copies along Doppler, and static clutter (guardrails, road, signs) appears at Doppler values set by its angle because the radar is moving. K therefore includes clutter.
+- So K90 should not be the headline number. Report peaks above the floor.
+
+Per-row results (what the sparse FFT replaces: one 256-point Doppler FFT per range row). K = bins more than 10 dB above that row's own median (per-row median handles the range-dependent floor):
+
+Frame 0: city median 8, p90 44, max 95, rows with K <= 8: 50%; countryside median 0, p90 38, max 79, 69%; highway median 0, p90 16, max 70, 85%.
+
+Every 5th frame, all rows pooled (saved in results/k_rows.npz):
+
+| Scene | Frames | Rows | Median K | p90 | Max | Rows with K = 0 | Rows with K <= 8 |
+|---|---|---|---|---|---|---|---|
+| City | 116 | 59392 | 2 | 36 | 108 | about 42% | 63.2% |
+| Countryside | 91 | 46592 | 0 | 18 | 85 | about 60% | 81.9% |
+| Highway | 78 | 39936 | 0 | 11 | 96 | about 73% | 88.5% |
+
+- Frame 0 was busier than typical (city median 8 -> 2, countryside p90 38 -> 18), so one frame was not enough.
+- The distribution is very skewed: most rows empty or nearly empty, a minority crowded (up to 108 of 256 bins). The realistic design is a hybrid: sparse FFT on sparse rows, dense FFT on crowded rows.
+- DDM catch: a row that contains a real target has about 12 DDM copies, so K >= 12 or so. Rows with K <= 8 are mostly rows without a target. A simple test that skips empty rows already gets much of the saving (42-73% of rows have K = 0). Phase 3 must compare the sparse FFT with "skip empty rows" as well as with the dense FFT, and look at K in rows that contain targets.
+- Idea for Phase 3 (not committed): the DDM copies are a known 16 bins apart, so a sparse FFT could recover a target from its copies together instead of treating them as 12 separate peaks.
+- K = 8 break-even is still the rough, unmeasured figure; real operation counts come in Phase 3.
+
+Figure 2 (figures/fig2_row_k_cdf.png): share of range rows with at most K peaks, per scene, step plot, dashed line at K = 8 marked illustrative. Check: at K = 8 the curves read 0.63, 0.82, 0.89, matching the table. Caption should say noise gives K = 0 in every row, and that K includes clutter and the 12 DDM copies.
+
+Not done / optional: K in rows that contain labelled targets (needs the timestamp-based label-to-frame mapping); repeat at 6 dB to show the ranking does not depend on the threshold.
+
+Phase 2 status: done except the optional items. About a day ahead of plan.
+
+Next: Phase 3. Confirm the paper (STOC 2012 exactly-sparse algorithm, Section 3), read Sections 1-3 without proofs, then implement the sparse FFT on one range row (N = 256) with the permutation and flat window.
