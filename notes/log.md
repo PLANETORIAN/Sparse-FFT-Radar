@@ -217,3 +217,44 @@ Not done / optional: K in rows that contain labelled targets (needs the timestam
 Phase 2 status: done except the optional items. About a day ahead of plan.
 
 Next: Phase 3. Confirm the paper (STOC 2012 exactly-sparse algorithm, Section 3), read Sections 1-3 without proofs, then implement the sparse FFT on one range row (N = 256) with the permutation and flat window.
+
+## Nov 13 (evening): the optional Phase 2 items, label offset
+
+6 dB check (every 5th frame, same loop as Figure 2, not saved):
+
+| Scene | Median K | p90 | Max | Rows with K = 0 | Rows with K <= 8 |
+|---|---|---|---|---|---|
+| City | 16 | 54 | 120 | 22.3% | 39.9% |
+| Countryside | 6 | 39 | 106 | 31.2% | 56.6% |
+| Highway | 1 | 29 | 108 | 46.3% | 71.4% |
+
+- The ranking (highway sparsest, then countryside, then city) is the same at 6 dB and 10 dB.
+- The absolute numbers move a lot: from 10 to 6 dB, rows with K <= 8 drop by 18-23 points. So always quote K with its threshold.
+- The threshold should not be a free choice. CFAR detects at 4 dB above the local noise, so judging the sparse FFT by "does CFAR on its output keep the same detections as on the dense FFT" is cleaner than any fixed K threshold. Plan for Phase 3.
+
+K in rows that contain a labelled car:
+- Only labelled frames before the first dropped radar block are used (frames[k] == ch3[k]), so label k surely points at radar frame k.
+- First run (rows r-1 to r+1 around the label row, r = radar_R_m / 0.201): city 5 cars, median K 38; countryside 91 cars, median 36; highway 32 cars, median 0. The highway 0 was a measurement problem: printing K for rows r-10 to r+10 showed the car's busy block 6-11 rows beyond the label row.
+- Offset check: for each car, the busiest row within +-20 rows of the label row, offset = busiest row - label row. Countryside cars at 40-44 m: offset 0. Highway cars at 61-70 m: offset about +9 rows (about 1.8 m, radar sees the car further away). Many scattered points elsewhere are argmax picking clutter.
+- Result, keeping cars within 5 rows of their scene's median offset: countryside 55 cars, median K 41, max 69; highway 32 cars, median 36, max 48; city 1 car (too few). K <= 8 in 0% of car rows in both scenes.
+- Why about 36: a car shows as 12 DDM copies in the same row, each about 3 bins wide (peak plus Hamming leakage), 12 x 3 = 36.
+
+Conclusion for Phase 2:
+- Most range rows are sparse, but those are the rows without a target. A row with a car has K about 36-41, well above the rough break-even of 8.
+- So a plain sparse FFT mostly saves work that simply skipping empty rows would also save. To help where the cars are, Phase 3 has to use the DDM structure: 12 copies exactly 16 bins apart are one target, not 12 peaks.
+
+Label range offset (open, does not affect sparsity):
+- Not proportional to range (countryside at 42 m would be at about +6 if the bin size were wrong; it is at 0), and not a fixed shift (that would also show in the countryside).
+- Labels come from lidar and camera, converted to radar coordinates; they are not the radar's own detection. Likely cause: a time gap between the lidar/camera snapshot and the radar frame paired with it. On the highway the car's range changes from frame to frame (70.0, 69.7, 69.1 m ...), so a small time gap becomes a range gap; in the countryside the cars barely change range.
+- Possible sources: separate sensor clocks, label k vs radar frame k off by a frame or two, or the unresolved Valeo delay constants (radar -180 ms, lidar -40 ms).
+- Explains the Step 0 highway gate miss at 70 m. Matters only for Phase 1 hit rates. Test later: compare highway labels against radar frames k-10 ... k+10.
+
+Phase 2 done.
+
+Decisions:
+- Phase 3 implements the STOC 2012 exactly-sparse algorithm (Nearly Optimal Sparse Fourier Transform, Section 3), the phase method already learned.
+- Moving the Phase 1-2 functions to src/ waits until cleanup (about Nov 24-26). The sparse FFT itself goes in src/sfft.py from its first line.
+
+Next: read STOC 2012 Sections 1-3 (skip proofs; questions to answer: what breaks off-grid, why sigma is odd, why the flat window is needed, how large B must be for K = 36 by Claim 3.1, why subtracting found coefficients helps), then the flat window lesson, then src/sfft.py on a synthetic row.
+
+Still to write here: exam end date and daily hours until Nov 19.
