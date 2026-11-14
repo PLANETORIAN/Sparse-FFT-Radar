@@ -258,3 +258,39 @@ Decisions:
 Next: read STOC 2012 Sections 1-3 (skip proofs; questions to answer: what breaks off-grid, why sigma is odd, why the flat window is needed, how large B must be for K = 36 by Claim 3.1, why subtracting found coefficients helps), then the flat window lesson, then src/sfft.py on a synthetic row.
 
 Still to write here: exam end date and daily hours until Nov 19.
+
+## Nov 14: Phase 3 theory, permutation and flat window
+
+Studied (before reading STOC 2012 Sections 1-3):
+
+Collisions with DDM:
+- With plain buckets (take every 16th sample, 16-point FFT), bin f goes to bucket f mod 16. A car's 12 DDM copies are exactly 16 bins apart, so all 12 land in one bucket.
+- The phase trick needs one tone per bucket. With 12 tones the bucket is a sum of 12 arrows; shifting by tau turns each arrow by its own angle, so the ratio's angle is a mix of 12 angles and points at no real copy (example: copies at 3, 19, ..., 179 gave angle 136 degrees -> bin 96.7, |ratio| 0.64 instead of 1). 12 tones = 24 unknowns, 2 measurements. Using all 16 groups would solve it but is the full FFT again.
+
+Two ways to group bins into buckets (write the 256 bins as a 16 x 16 grid):
+- Mod buckets = columns (bucket = f mod 16): every 16th bin. What subsampling gives. Fails on evenly spaced tones (DDM copies: one column).
+- Contiguous buckets = rows (bucket = f // 16): 16 neighbouring bins, like a band-pass filter / one bar of a music equalizer. Fails on neighbouring tones (two cars at nearly the same speed, one copy's own leakage).
+- The 12 DDM copies (bins 3 ... 179) are in one column but in 12 different rows, so contiguous buckets already separate them.
+
+Permutation (sigma odd):
+- Read the time samples in the order x[sigma*m mod N]. This moves every tone from bin f to bin sigma*f mod N. No FFT needed, only a different reading order (memory addressing on an FPGA). Only this kind of reordering keeps a tone a single tone; a random order would smear it.
+- Undo after finding a tone: multiply the found position by sigma^-1 mod N (sigma = 5, N = 256: 205; sigma = 3, N = 16: 11, e.g. 15 * 11 mod 16 = 5).
+- sigma must be odd: with N a power of 2, an even sigma maps two bins to one place (2 * 128 = 0) and cannot be undone.
+- Permutation alone cannot fix mod buckets: (sigma*f) mod 16 depends only on f mod 16, so a column stays a column. It is used with contiguous buckets, where it scatters neighbours so two particular bins rarely share a row (paper's Lemma 2.4).
+- Summary: mod buckets break on evenly spaced tones, contiguous buckets break on neighbours, permutation + contiguous buckets break on neither (most of the time).
+- Time/frequency pairs in the paper's P(sigma, a, b): index x sigma <-> bins move to sigma*f; shift by a (= my tau) <-> each bin turns by its own angle; multiply by a rotating arrow (b) <-> all bins slide.
+
+Flat window (how contiguous buckets are made from time samples):
+- Recipe: multiply the samples by a window w, fold (cut into pieces of B samples and add them), one B-point FFT.
+- Result 1: fold + B-point FFT gives exactly bins 0, L, 2L, ... of the big N-point FFT (L = N/B), because the piece number drops out of the exponent. Without a window a tone between those bins is missed.
+- Result 2: multiplying by w in time smears the spectrum: Z[m] = (1/N) sum_f X[f] W[m-f].
+- Together: bucket j = sum_f X[f] G[f - jL], with G[d] = W[-d]/N the band-pass filter shape. A flat G (1 over L neighbouring bins, 0 elsewhere) makes bucket j the sum of band j.
+- A window is a recipe for which neighbouring bins get added: each rotating term in w adds a copy of the spectrum shifted by that many bins. Example N = 8, B = 4: w[n] = 1 + e^(-2 pi i n/8) adds a copy shifted down one bin, so Z[m] = X[m] + X[m+1] and bucket j = bins 2j and 2j+1.
+- Worked example (N = 8, B = 4, tones at bin 2 size 1 and bin 5 size 0.5): true X = [0,0,8,0,0,4,0,0]; without window buckets [0,8,0,0] (bin 5 missed); with window buckets [0,8,4,0]; shift tau = 1: angles 90 deg -> bin 2, 225 deg -> bin 5.
+- The phase trick survives the window: the same G multiplies both groups and cancels in the ratio, so a tone at a band edge is still located exactly (only its amplitude reads low, corrected by dividing by G).
+- Cost: a perfectly flat band needs a window over all N samples. Rounding the band edges slightly (paper Definition 2.3, delta error) makes w short: for N = 256, B = 16 about 137 samples, not 16. So the saving at N = 256 is small; the paper's speed-up is about large N. With K about 36 per car row the saving may be small or none, and measuring that is the Phase 3 result.
+- 4-point DFT note: e^(-2 pi i jm/4) = (-i)^(jm), since e^(-2 pi i/4) = -i.
+
+Not fully clear yet, come back to it: the flat window derivation (Results 1 and 2 and how W is chosen from G).
+
+Next: go over the flat window once more, then read STOC 2012 Sections 1-3 with the 5 questions, then src/sfft.py on a synthetic row.
