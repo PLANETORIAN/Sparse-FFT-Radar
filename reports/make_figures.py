@@ -55,7 +55,7 @@ def fig_row_k():
     ax.grid(alpha=0.3, lw=0.4)
     ax.legend(loc="lower right", frameon=False)
     fig.savefig(os.path.join(OUT, "fig_row_k_cdf.pdf"))
-    fig.savefig(os.path.join(OUT, "fig_row_k_cdf.png"), dpi=300)
+    fig.savefig(os.path.join(OUT, "fig_row_k_cdf.png"), dpi=200, pad_inches=0.15, facecolor="white")
     plt.close(fig)
 
 
@@ -93,7 +93,7 @@ def fig_recall_cost():
                handlelength=1.6, columnspacing=1.2, bbox_to_anchor=(0.5, -0.02))
     fig.subplots_adjust(wspace=0.06)
     fig.savefig(os.path.join(OUT, "fig_recall_vs_cost.pdf"))
-    fig.savefig(os.path.join(OUT, "fig_recall_vs_cost.png"), dpi=300)
+    fig.savefig(os.path.join(OUT, "fig_recall_vs_cost.png"), dpi=200, pad_inches=0.15, facecolor="white")
     plt.close(fig)
 
 
