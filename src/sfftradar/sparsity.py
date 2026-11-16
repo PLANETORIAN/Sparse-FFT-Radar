@@ -35,3 +35,8 @@ def noise_map(seed=0, shape=(512, 256, 16)):
     rng = np.random.default_rng(seed)
     cube = rng.standard_normal(shape) + 1j * rng.standard_normal(shape)
     return np.sum(np.abs(range_doppler(cube)) ** 2, axis=2)
+
+def dense_peaks(Pr, thr):
+    """Local maxima of one row's power that are above thr."""
+    N = len(Pr)
+    return [f for f in range(N) if Pr[f] > thr and Pr[f] >= Pr[(f - 1) % N] and Pr[f] >= Pr[(f + 1) % N]]

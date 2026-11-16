@@ -42,3 +42,14 @@ def ca_cfar(P, n_rng=9, n_dop=9, g_rng=3, g_dop=3, thr_db=4):
     sums   = convolve2d(pw, mask, mode="same")
     counts = convolve2d(np.ones_like(pw), mask, mode="same")
     return pw / (sums / counts) > 10 ** (thr_db / 10)
+
+def row_inputs(seq, n):
+    """Doppler inputs of one frame: (512 rows, 256 chirps, 16 channels), after the range FFT and Doppler window."""
+    cube = frame_cube(seq, n)
+    cube = cube - cube.mean(axis=(0, 1), keepdims=True)
+    return np.fft.fft(cube * W_RANGE[:, None, None], axis=0) * W_DOPPLER[None, :, None]
+
+
+def doppler_power(din):
+    """Dense Doppler FFT of row_inputs, power summed over channels: (512, 256)."""
+    return np.sum(np.abs(np.fft.fft(din, axis=1)) ** 2, axis=2)

@@ -25,10 +25,10 @@ def flat_window(N, B, edge=1.5, thr=1e-3):
     Returns the time window w (length N, mostly zeros) and the designed band shape G.
     """
     L = N // B
-    d = np.fft.fftfreq(N, 1 / N)        # signed bin offset of each bin: 0, 1, ..., 127, -128, ..., -1
+    d = np.fft.fftfreq(N, 1 / N)   # signed bin offsets
     # a box of width L centred on 0, with edges rounded over about `edge` bins
     G = 0.5 * (erf((d + L / 2) / (edge * np.sqrt(2))) - erf((d - L / 2) / (edge * np.sqrt(2))))
-    w = np.real(np.fft.ifft(G)) * N   # back to time (np.fft.ifft divides by N, so undo that)
+    w = np.real(np.fft.ifft(G)) * N
     w[np.abs(w) < thr * np.abs(w).max()] = 0
     return w, G
 
@@ -41,9 +41,9 @@ def hash_to_bins(x, sigma, tau, w, B):
     N = len(x)
     m = np.arange(N)
     y = x[(sigma * (m + tau)) % N]            # permute and shift by tau
-    z = y * w                                  # window: only the nonzero w samples matter
-    folded = z.reshape(N // B, B).sum(axis=0)   # cut into pieces of B, add them
-    return np.fft.fft(folded)                  # one small B-point FFT
+    z = y * w
+    folded = z.reshape(N // B, B).sum(axis=0)   # fold
+    return np.fft.fft(folded)
 
 
 def locate(x, sigma, w, B, thresh, ratio_tol=0.1):
@@ -53,7 +53,7 @@ def locate(x, sigma, w, B, thresh, ratio_tol=0.1):
     """
     N = len(x)
     L = N // B
-    Gw = np.real(np.fft.fft(w)) / N              # band shape of the real window
+    Gw = np.real(np.fft.fft(w)) / N   # band shape of the truncated window
     u0 = hash_to_bins(x, sigma, 0, w, B)
     u1 = hash_to_bins(x, sigma, 1, w, B)
     sigma_inv = pow(sigma, -1, N)
@@ -63,17 +63,17 @@ def locate(x, sigma, w, B, thresh, ratio_tol=0.1):
         if abs(u0[j]) < thresh:                  # empty bucket
             continue
         r = u1[j] / u0[j]
-        if abs(abs(r) - 1) > ratio_tol:          # |ratio| far from 1: a collision
+        if abs(abs(r) - 1) > ratio_tol:   # collision
             continue
         p = int(np.round(np.angle(r) % (2 * np.pi) * N / (2 * np.pi))) % N   # permuted bin
         off = ((p - j * L + N // 2) % N) - N // 2                            # distance from bucket centre
-        if abs(off) > L // 2:                    # p is not inside bucket j's band: a collision
+        if abs(off) > L // 2:   # outside the band
             continue
         f = (p * sigma_inv) % N                        # undo the permutation
         found[f] = u0[j] / Gw[(p - j * L) % N]   # undo the band shape
     return found
 
-def sparse_fft(x, B, w, rounds=12, tol=1e-6, rng=None, stats=None):     # NEW: stats
+def sparse_fft(x, B, w, rounds=12, tol=1e-6, rng=None, stats=None):
     """Exactly-sparse FFT. Returns {bin f: X[f]} for the nonzero bins found.
 
     Each round: random odd sigma, locate lone tones, subtract them, repeat on the rest.
@@ -85,18 +85,18 @@ def sparse_fft(x, B, w, rounds=12, tol=1e-6, rng=None, stats=None):     # NEW: s
 
     est = {}
     r = x.copy()
-    used = 0                                                           # NEW
+    used = 0
     for _ in range(rounds):
         if np.linalg.norm(r) < tol * np.linalg.norm(x):
             break
         sigma = int(rng.choice(np.arange(1, N, 2)))
         found = locate(r, sigma, w, B, thresh)
-        used += 1                                                      # NEW
+        used += 1
         for f, v in found.items():
             est[f] = est.get(f, 0) + v
             r = r - tone(N, f, v / N)
-    if stats is not None:                                              # NEW
-        stats["rounds"] = used                                         # NEW
+    if stats is not None:
+        stats["rounds"] = used
     return {f: v for f, v in est.items() if abs(v) > thresh}
 
 def dense_ops(N):
