@@ -294,3 +294,26 @@ Flat window (how contiguous buckets are made from time samples):
 Not fully clear yet, come back to it: the flat window derivation (Results 1 and 2 and how W is chosen from G).
 
 Next: go over the flat window once more, then read STOC 2012 Sections 1-3 with the 5 questions, then src/sfft.py on a synthetic row.
+
+## Nov 15-16: code moved to src/, sparse FFT Parts 1-4 built
+
+Moved to src/sfftradar (no more notebook globals):
+- radial.py: SEQS, Seq dataclass, load_seq(tag) returns a Seq (tag, name, data, radar, frames); read_block(seq, ...), chip_cube, frame_cube(seq, n) (the 4-chip read written once), load_labels().
+- rd.py: W_RANGE, W_DOPPLER (Hamming), range_doppler(cube), frame_to_rd(seq, n), frame_to_pred(seq, n, mti), ca_cfar.
+- sparsity.py: k_frac, sparsity_report, n_peaks, row_peaks, noise_map (noise through the same range_doppler).
+- Notebooks start with sys.path.insert(0, "../src") and %autoreload 2. 02_sparsity.ipynb left as the Phase 2 record.
+- Check after the move: city frame 0 K90 = 6929, noise K90 = 110919, per-row median 8.0 and K <= 8 share 0.502, all unchanged.
+
+Decision: start coding before finishing the paper; understand the algorithm by testing each piece. Read STOC 2012 Section 3 afterwards.
+
+src/sfftradar/sfft.py so far (tests in notebooks/03_sfft.ipynb, N = 256, B = 16):
+1. tone(N, f, amp) and permute(x, sigma): read x[sigma*m mod N]. Tone at bin 37 moves to 185 = 5 x 37; sigma^-1 = pow(5, -1, 256) = 205, 185 x 205 mod 256 = 37.
+2. flat_window(N, B, edge=1.5, thr=1e-3): design the band shape G in frequency (box of width 16 with erf-rounded edges), w = N * ifft(G), drop samples below 0.1% of the peak. Result: 141 samples used, flat part 0.977-1.000, leakage outside 0.0004. Trade-off: edge 1.0 -> 199 samples, flatness 0.998; edge 1.5 -> 141, 0.977; edge 2.0 -> 113, 0.933 (window length vs flatness; the paper's delta). Worth a sentence in the report.
+3. hash_to_bins(x, sigma, tau, w, B): read x[sigma*(m + tau)], multiply by w, fold into B (reshape(N//B, B).sum(axis=0)), one B-point FFT. Matches the formula u[j] = sum_p Y[p] G[p - jL] to 6e-14. One car (12 DDM copies 3, 19, ..., 179): one copy per bucket in 12 buckets with sigma = 5 and also with sigma = 1, so the band-pass (contiguous) buckets do the separating; plain every-16th-sample buckets would put all 12 in one.
+4. locate(x, sigma, w, B, thresh, ratio_tol=0.1): hash with tau = 0 and 1, r = u1/u0, permuted bin p = round(angle * N / 2 pi), f = p * sigma^-1 mod N, value = u0 / band height at p. Collision checks: |r| far from 1, and p outside bucket j's band (also rejects leaks of a tone into the neighbouring bucket).
+
+Walk-through on the test row (tones 27, 66, 76, 105, 211; sigma = 5): permuted to 135, 74, 124, 13, 31; buckets 8, 5, 8, 1, 2. Round 1 finds 105, 211, 66 with values within 0.1%; 27 and 76 collide in bucket 8 and produce a fake tone at 229 (|r| = 1.019 passed the check); leaks of 66 and 27 into buckets 4 and 9 are rejected by the band check. All 12 car copies found in one round.
+
+Preview (container run of Part 5, the full loop; my code not written yet): subtract found tones and repeat with a new random sigma; the 5-tone row is then recovered exactly and the fake cancels. Recovery rate over 200 random rows with B = 16: K = 1, 5: 100%; K = 8: about 97%; K = 12: about 56-64%; K = 20: about 0.5%. So B = 16 handles about 8 tones; a car row (K about 36) needs more buckets, which raises the cost.
+
+Next: Part 5 (sparse_fft loop), Part 6 (operation counter), then the B vs K sweep, off-grid and noise tests, then real RADIal rows.
