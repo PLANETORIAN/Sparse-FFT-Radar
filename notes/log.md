@@ -317,3 +317,51 @@ Walk-through on the test row (tones 27, 66, 76, 105, 211; sigma = 5): permuted t
 Preview (container run of Part 5, the full loop; my code not written yet): subtract found tones and repeat with a new random sigma; the 5-tone row is then recovered exactly and the fake cancels. Recovery rate over 200 random rows with B = 16: K = 1, 5: 100%; K = 8: about 97%; K = 12: about 56-64%; K = 20: about 0.5%. So B = 16 handles about 8 tones; a car row (K about 36) needs more buckets, which raises the cost.
 
 Next: Part 5 (sparse_fft loop), Part 6 (operation counter), then the B vs K sweep, off-grid and noise tests, then real RADIal rows.
+
+## Nov 16: sparse FFT finished, synthetic cost, real RADIal rows, Figure 3
+
+Decision: finish the project first, study the theory in depth after the exams.
+
+sfft.py, Part 5, sparse_fft(x, B, w, rounds, tol, rng, stats): each round picks a random odd sigma, locates lone tones, subtracts them from the residual, and repeats. The 27 + 76 collision from Part 4 is resolved in later rounds, and the fake 229 cancels. Test row recovered exactly; two tones in neighbouring bins (64, 65) also recovered. Success over 200 random rows with B = 16: K = 1: 1.00, 5: 1.00, 8: 0.975, 12: 0.56, 20: 0.005.
+
+sfft.py, Part 6, operation count (complex multiplications): dense radix-2 FFT (N/2) log2 N = 1024; one hashing = window samples + (B/2) log2 B (B = 16: 141 + 32 = 173); one round = 2 hashings + 2 per bucket. Subtraction counted as free (paper does it inside the buckets), which favours the sparse FFT.
+
+Synthetic sweep (share recovered / median cost, dense = 1024):
+- B = 16: K=1 1.00/378, K=5 1.00/1512, K=8 1.00/2646, K=12 0.93/4536, K=20 0.09, K=36 0.00
+- B = 32: K=1 1.00/546, K=5 1.00/1638, K=8 1.00/2730, K=12 1.00/6552, K=20 0.98/6552, K=36 0.00
+- B = 64: K=1 1.00/862, K=5 1.00/2586, K=8 1.00/3448, K=12 1.00/10344, K=20 1.00/10344, K=36 0.91/10344
+- Measured break-even is about K = 2, even on clean, on-grid, noise-free tones (the Phase 2 guess of K = 8 was too optimistic). A car row (K about 36) needs B = 64 at about 10 times the dense cost. Reason: at N = 256 the window alone reads 141-175 of 256 samples per hashing, and several hashings are needed.
+
+Real rows needed two changes (multi-channel functions hash_to_bins_mc, locate_mc, sparse_fft_mc):
+- All 16 channels together: hash all channels with the same sigma, sum bucket power over channels to decide occupied buckets, average the phase ratio over channels (sum u1 * conj(u0)). Per-channel processing misses the 12 dB of the channel sum that the dense map has.
+- Noise-relative threshold: a bucket is occupied if its power exceeds c times the median bucket power (c = 4 default); the loop stops when a round finds nothing. With the synthetic threshold the algorithm "found" a tone in almost every bin.
+
+Real-row experiment (notebooks/04_real_rows.ipynb; every 25th frame, all 512 rows, 16 channels; a dense peak = local maximum more than 10 dB above the row median; kept if the sparse output exceeds the same threshold within +-1 bin; results/phase3_real.npy):
+
+| Scene | Peaks kept B = 16 / 32 / 64 | Cost vs dense | Rows with any peak |
+|---|---|---|---|
+| City | 0.03 / 0.24 / 0.61 | 0.51 / 1.29 / 2.99 | 0.57 |
+| Countryside | 0.04 / 0.27 / 0.60 | 0.46 / 0.98 / 2.12 | 0.40 |
+| Highway | 0.07 / 0.35 / 0.70 | 0.46 / 0.85 / 1.70 | 0.28 |
+
+Why recall is low: each bucket adds L neighbouring bins, so it also adds L bins of noise. A peak 10 dB above one bin's noise is compared with L bins of noise: loss 10 log10 L = 12 dB (B = 16), 9 dB (B = 32), 6 dB (B = 64). A 10 dB peak disappears at B = 16. The noise-free synthetic tests could not show this.
+
+Check 1, threshold c (every 4th row; results/phase3_c_sweep.npy): c only moves the sparse FFT along the same trade-off.
+- c = 2: kept 0.30-0.36 / 0.70-0.74 / 0.92-0.95 for B = 16 / 32 / 64 at cost 1.5-2.0 / 3.2-4.2 / 6.7-8.1.
+- c = 8: kept 0.00-0.01 / 0.06-0.14 / 0.27-0.34 at cost 0.38 / 0.62-0.67 / 1.1-1.6.
+- No setting keeps most peaks at less than the dense cost. Conclusion does not depend on c.
+
+Check 2, realistic row skip by energy (results/phase3_energy_skip.npy): run the dense FFT only on rows whose energy (sum of |x|^2 over chirps and channels, no FFT) exceeds a times the median row energy. Cost = 0.125 (energy test) + share of rows kept.
+- a = 1.0: kept 0.82 / 0.79 / 0.70 (city / countryside / highway) at cost 0.62.
+- a = 1.5: 0.74 / 0.74 / 0.65 at cost 0.47 / 0.42 / 0.35.
+- a = 3.0: 0.56 / 0.52 / 0.43 at cost 0.34 / 0.27 / 0.21.
+- Not perfect: many weak peaks sit in rows whose total energy is below the median, so even a = 1.0 loses 18-30% of peaks. The earlier best case (rows known in advance) was too optimistic and is replaced by this.
+- At equal cost it still beats the sparse FFT clearly (cost about 0.6: 70-82% kept vs 6-14%).
+
+Figure 3 (figures/fig3_recall_vs_cost.png): one panel per scene, peaks kept vs cost per row relative to the dense FFT (log x). Colour = c, marker = B, dashed = energy skip, star = dense FFT. In every panel the sparse FFT lies below and to the right of both alternatives.
+
+Phase 3 conclusion: at N = 256 on real RADIal rows, the exactly-sparse FFT keeps fewer Doppler peaks than either the dense FFT or a simple energy-based row skip, at every cost. Three reasons: rows with a vehicle hold about 36 peaks (12 DDM copies), each bucket adds 16 bins of noise (about 12 dB lost), and the flat window alone reads over half of the 256 samples. Second finding: even the energy-based skip loses 20-30% of peaks, so at this size the plain dense FFT on every row is hard to beat.
+
+Report notes: in the IEEE version make Figure 3 column-sized; caption must say what c, B and a are. Possible next steps for the report: DDM-aware sparse FFT treating the 12 copies as one target, a 2D range-Doppler sparse transform, larger N.
+
+Phase 3 done. Next: draft the report (Nov 17-19), FPGA decision Nov 20 (likely skip), final README, letter, submit by Nov 28.

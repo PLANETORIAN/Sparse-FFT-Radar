@@ -108,3 +108,65 @@ def sparse_ops(N, B, w, rounds):
     """Complex multiplications of sparse_fft: 2 hashings per round + 2 per bucket in locate."""
     per_hashing = np.count_nonzero(w) + (B // 2) * int(np.log2(B))
     return rounds * (2 * per_hashing + 2 * B)
+
+def hash_to_bins_mc(X, sigma, tau, w, B):
+    """hash_to_bins for all channels at once. X: (N, C) one range row. Returns (B, C)."""
+    N = X.shape[0]
+    m = np.arange(N)
+    Y = X[(sigma * (m + tau)) % N] * w[:, None]
+    return np.fft.fft(Y.reshape(N // B, B, -1).sum(axis=0), axis=0)
+
+
+def locate_mc(X, sigma, w, B, c=4.0, ratio_tol=0.2):
+    """locate for all channels: bucket power summed over channels, phase ratio averaged.
+
+    A bucket is occupied if its power is more than c times the median bucket power.
+    Returns {bin f: vector of X[f] over channels}.
+    """
+    N = X.shape[0]
+    L = N // B
+    Gw = np.real(np.fft.fft(w)) / N
+    u0 = hash_to_bins_mc(X, sigma, 0, w, B)
+    u1 = hash_to_bins_mc(X, sigma, 1, w, B)
+    pw = np.sum(np.abs(u0) ** 2, axis=1)                  # bucket power, all channels
+    thr = c * np.median(pw)
+    sigma_inv = pow(sigma, -1, N)
+
+    found = {}
+    for j in range(B):
+        if pw[j] < thr:
+            continue
+        r = np.sum(u1[j] * np.conj(u0[j])) / pw[j]          # phase ratio averaged over channels
+        if abs(abs(r) - 1) > ratio_tol:
+            continue
+        p = int(np.round(np.angle(r) % (2 * np.pi) * N / (2 * np.pi))) % N
+        off = ((p - j * L + N // 2) % N) - N // 2
+        if abs(off) > L // 2:
+            continue
+        found[(p * sigma_inv) % N] = u0[j] / Gw[(p - j * L) % N]
+    return found
+
+
+def sparse_fft_mc(X, B, w, c=4.0, rounds=12, rng=None, stats=None):
+    """Multi-channel sparse FFT of one range row X (N, C). Stops when a round finds nothing.
+
+    Returns {bin f: vector of X[f] over channels}.
+    """
+    N = X.shape[0]
+    n = np.arange(N)
+    rng = rng if rng is not None else np.random.default_rng()
+    est = {}
+    R = X.copy()
+    used = 0
+    for _ in range(rounds):
+        sigma = int(rng.choice(np.arange(1, N, 2)))
+        found = locate_mc(R, sigma, w, B, c)
+        used += 1
+        if not found:
+            break
+        for f, v in found.items():
+            est[f] = est.get(f, 0) + v
+            R = R - np.exp(2j * np.pi * f * n / N)[:, None] * (v / N)[None, :]
+    if stats is not None:
+        stats["rounds"] = used
+    return est
