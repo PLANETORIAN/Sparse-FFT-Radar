@@ -72,3 +72,39 @@ def locate(x, sigma, w, B, thresh, ratio_tol=0.1):
         f = (p * sigma_inv) % N                        # undo the permutation
         found[f] = u0[j] / Gw[(p - j * L) % N]   # undo the band shape
     return found
+
+def sparse_fft(x, B, w, rounds=12, tol=1e-6, rng=None, stats=None):     # NEW: stats
+    """Exactly-sparse FFT. Returns {bin f: X[f]} for the nonzero bins found.
+
+    Each round: random odd sigma, locate lone tones, subtract them, repeat on the rest.
+    If stats is a dict, the number of rounds used is written into it.
+    """
+    N = len(x)
+    rng = rng if rng is not None else np.random.default_rng()
+    thresh = tol * np.linalg.norm(x) * np.sqrt(N)
+
+    est = {}
+    r = x.copy()
+    used = 0                                                           # NEW
+    for _ in range(rounds):
+        if np.linalg.norm(r) < tol * np.linalg.norm(x):
+            break
+        sigma = int(rng.choice(np.arange(1, N, 2)))
+        found = locate(r, sigma, w, B, thresh)
+        used += 1                                                      # NEW
+        for f, v in found.items():
+            est[f] = est.get(f, 0) + v
+            r = r - tone(N, f, v / N)
+    if stats is not None:                                              # NEW
+        stats["rounds"] = used                                         # NEW
+    return {f: v for f, v in est.items() if abs(v) > thresh}
+
+def dense_ops(N):
+    """Complex multiplications of a radix-2 N-point FFT."""
+    return (N // 2) * int(np.log2(N))
+
+
+def sparse_ops(N, B, w, rounds):
+    """Complex multiplications of sparse_fft: 2 hashings per round + 2 per bucket in locate."""
+    per_hashing = np.count_nonzero(w) + (B // 2) * int(np.log2(B))
+    return rounds * (2 * per_hashing + 2 * B)
